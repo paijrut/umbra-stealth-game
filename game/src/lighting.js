@@ -14,7 +14,7 @@ export class LightingEngine {
     this._flickerOffset += 0.05;
     const ctx = this.ctx;
 
-    // 1. Fill darkness mask with atmospheric ambient darkness (legible yet moody)
+    // 1. Fill darkness mask with balanced noir ambient shadows
     ctx.globalCompositeOperation = 'source-over';
     ctx.fillStyle = COLORS.shadow;
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
@@ -28,7 +28,7 @@ export class LightingEngine {
 
       const grad = ctx.createRadialGradient(light.x, light.y, 10, light.x, light.y, radius);
       grad.addColorStop(0, 'rgba(0,0,0,1)');
-      grad.addColorStop(0.6, 'rgba(0,0,0,0.75)');
+      grad.addColorStop(0.65, 'rgba(0,0,0,0.80)');
       grad.addColorStop(1, 'rgba(0,0,0,0)');
 
       ctx.fillStyle = grad;
@@ -38,9 +38,9 @@ export class LightingEngine {
     }
 
     // 3. Subtle operative presence glow
-    const playerGlowRadius = player.inCover ? 28 : 48;
+    const playerGlowRadius = player.inCover ? 32 : 54;
     const playerGrad = ctx.createRadialGradient(player.x, player.y, 4, player.x, player.y, playerGlowRadius);
-    playerGrad.addColorStop(0, 'rgba(0,0,0,0.65)');
+    playerGrad.addColorStop(0, 'rgba(0,0,0,0.75)');
     playerGrad.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = playerGrad;
     ctx.beginPath();
@@ -56,7 +56,7 @@ export class LightingEngine {
           ctx.lineTo(guard.visionPolygon[i].x, guard.visionPolygon[i].y);
         }
         ctx.closePath();
-        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.fillStyle = 'rgba(0,0,0,0.65)';
         ctx.fill();
       }
     }
@@ -66,18 +66,18 @@ export class LightingEngine {
     mainCtx.globalCompositeOperation = 'source-over';
     mainCtx.drawImage(this.canvas, 0, 0);
 
-    // 6. Radiant color tint overlays for luminous noir chandeliers & lamps
+    // 6. Radiant color tint overlays for warm vintage chandeliers & lamps
     mainCtx.globalCompositeOperation = 'screen';
     for (const light of lights) {
-      const radius = light.radius * 0.9;
+      const radius = light.radius * 0.95;
       const tint = mainCtx.createRadialGradient(light.x, light.y, 0, light.x, light.y, radius);
       if (light.color === 'warm') {
-        tint.addColorStop(0, 'rgba(255, 205, 120, 0.35)');
-        tint.addColorStop(0.5, 'rgba(255, 175, 80, 0.18)');
+        tint.addColorStop(0, 'rgba(255, 215, 130, 0.42)');
+        tint.addColorStop(0.5, 'rgba(255, 180, 85, 0.22)');
         tint.addColorStop(1, 'rgba(255, 150, 60, 0)');
       } else {
-        tint.addColorStop(0, 'rgba(120, 200, 255, 0.28)');
-        tint.addColorStop(0.5, 'rgba(100, 170, 255, 0.14)');
+        tint.addColorStop(0, 'rgba(130, 205, 255, 0.32)');
+        tint.addColorStop(0.5, 'rgba(110, 180, 255, 0.16)');
         tint.addColorStop(1, 'rgba(80, 140, 255, 0)');
       }
       mainCtx.fillStyle = tint;
