@@ -1,8 +1,10 @@
-// world.js — Game simulation, collision, win/caught conditions
+// world.js — Game simulation, collision, security systems, gadgets, win/caught conditions
 import { LEVELS, findTile, getTile, isSolid } from './levels.js';
 import { Player } from './player.js';
 import { Guard } from './guards.js';
 import { LightingEngine } from './lighting.js';
+import { SecuritySystem } from './security.js';
+import { GadgetManager } from './gadgets.js';
 import { TILE, TILE_SIZE, ALERT_THRESHOLD } from './constants.js';
 import { sound } from './sound.js';
 
@@ -10,6 +12,8 @@ export class GameWorld {
   constructor() {
     this.currentLevelIndex = 0;
     this.lighting = new LightingEngine();
+    this.gadgets = new GadgetManager();
+    this.security = new SecuritySystem();
     this.player = null;
     this.guards = [];
     this.exitUnlocked = false;
@@ -38,6 +42,12 @@ export class GameWorld {
 
     // 2. Initialize Guards
     this.guards = (this.level.guards || []).map(cfg => new Guard(cfg));
+
+    // 3. Initialize Security Systems (Cameras & Laser Tripwires)
+    this.security = new SecuritySystem(this.level.cameras, this.level.lasers);
+
+    // 4. Reset Gadgets
+    this.gadgets.reset();
   }
 
   restartLevel() {
@@ -51,19 +61,45 @@ export class GameWorld {
   update(input) {
     if (this.isVictory || this.isCaught) return;
 
-    // 1. Update Player
+    // 1. Handle Gadget Inputs (Q: Smoke Vial, E: Decoy Pebble)
+    if (input.wasPressed('KeyQ')) {
+      this.gadgets.deploySmoke(this.player.x, this.player.y);
+    }
+
+    if (input.wasPressed('KeyE')) {
+      let targetX = input.mouseX;
+      let targetY = input.mouseY;
+      const dist = Math.hypot(targetX - this.player.x, targetY - this.player.y);
+      if (dist > 220 || dist < 20) {
+        // Default target: 140px in facing direction
+        targetX = this.player.x + Math.cos(this.player.angle) * 140;
+        targetY = this.player.y + Math.sin(this.player.angle) * 140;
+      }
+      this.gadgets.throwPebble(this.player.x, this.player.y, targetX, targetY, this.guards);
+    }
+
+    // 2. Update Gadgets Simulation
+    this.gadgets.update(this.guards);
+
+    // 3. Update Player
     this.player.update(input, this.level.grid, this.level.lights);
 
-    // 2. Update Guards
+    // 4. Update Security Systems (Surveillance Cameras & Laser Grids)
+    this.security.update(this.player, this.level.grid, this.gadgets, (reason) => {
+      this._triggerCaught(reason);
+    });
+    if (this.isCaught) return;
+
+    // 5. Update Guards
     let highestDet = 0;
     for (const guard of this.guards) {
-      guard.update(this.player, this.level.grid);
+      guard.update(this.player, this.level.grid, this.gadgets);
       if (guard.detection > highestDet) highestDet = guard.detection;
 
       // Check physical catch collision
       const dist = Math.hypot(guard.x - this.player.x, guard.y - this.player.y);
       if (dist < guard.radius + this.player.radius - 2) {
-        this._triggerCaught('A guard apprehended you!');
+        this._triggerCaught('A sentry apprehended you!');
         return;
       }
     }
@@ -76,7 +112,7 @@ export class GameWorld {
       return;
     }
 
-    // 3. Tile Interaction Check (Key, Door, Exit)
+    // 6. Tile Interaction Check (Key, Door, Exit)
     const pCol = Math.floor(this.player.x / TILE_SIZE);
     const pRow = Math.floor(this.player.y / TILE_SIZE);
     const standingTile = getTile(this.level.grid, pCol, pRow);

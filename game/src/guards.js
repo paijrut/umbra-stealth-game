@@ -38,12 +38,12 @@ export class Guard {
     this._playedAlert = false;
   }
 
-  update(player, grid, dt = 1) {
-    // 1. Raycast vision cone against world walls
-    this._computeVisionPolygon(grid);
+  update(player, grid, gadgets = null, dt = 1) {
+    // 1. Raycast vision cone against world walls and smoke clouds
+    this._computeVisionPolygon(grid, gadgets);
 
     // 2. Check Line of Sight & Detection
-    const canSeePlayer = this._checkPlayerInVision(player, grid);
+    const canSeePlayer = this._checkPlayerInVision(player, grid, gadgets);
     const canHearPlayer = this._checkPlayerNoise(player, grid);
 
     if (canSeePlayer) {
@@ -99,14 +99,15 @@ export class Guard {
         break;
 
       case GUARD_STATE.SUSPICIOUS:
-        this._turnTowardsTarget();
-        if (this.detection === 0) {
-          this.state = GUARD_STATE.PATROL;
-        }
+        this._investigate(grid);
         break;
 
       case GUARD_STATE.SEARCH:
-        this._search(grid);
+        this._searchLookAround();
+        this.searchTimer -= dt;
+        if (this.searchTimer <= 0) {
+          this.state = GUARD_STATE.RETURN;
+        }
         break;
 
       case GUARD_STATE.RETURN:
@@ -115,16 +116,101 @@ export class Guard {
 
       case GUARD_STATE.PATROL:
       default:
-        this._patrol(grid);
+        this._patrol(grid, dt);
         break;
     }
+
+    // 4. Smooth angle turning towards target angle
+    this._turnTowardsTarget(0.12 * dt);
   }
 
-  _patrol(grid) {
-    if (this.patrol.length === 0) return;
+  _computeVisionPolygon(grid, gadgets = null) {
+    const rays = 32;
+    const halfAngle = GUARD_VIEW_ANGLE / 2;
+    const startAngle = this.angle - halfAngle;
+    const step = GUARD_VIEW_ANGLE / rays;
+    const poly = [{ x: this.x, y: this.y }];
+
+    for (let i = 0; i <= rays; i++) {
+      const rayAngle = startAngle + i * step;
+      let castDist = GUARD_VIEW_RANGE;
+      const cosA = Math.cos(rayAngle);
+      const sinA = Math.sin(rayAngle);
+
+      // Step along ray until wall or boundary
+      for (let d = 8; d <= GUARD_VIEW_RANGE; d += 8) {
+        const testX = this.x + cosA * d;
+        const testY = this.y + sinA * d;
+        const col = Math.floor(testX / TILE_SIZE);
+        const row = Math.floor(testY / TILE_SIZE);
+
+        if (isSolid(grid, col, row)) {
+          castDist = d;
+          break;
+        }
+        // Vision blocked by smoke clouds
+        if (gadgets && gadgets.isPointInSmoke(testX, testY)) {
+          castDist = d;
+          break;
+        }
+      }
+
+      poly.push({
+        x: this.x + cosA * castDist,
+        y: this.y + sinA * castDist,
+      });
+    }
+
+    this.visionPolygon = poly;
+  }
+
+  _checkPlayerInVision(player, grid, gadgets = null) {
+    // If player is inside smoke cloud or smoke lies between guard and player, vision is blocked
+    if (gadgets) {
+      if (gadgets.isPointInSmoke(player.x, player.y)) return false;
+      if (gadgets.isLineBlockedBySmoke(this.x, this.y, player.x, player.y)) return false;
+    }
+
+    const dx = player.x - this.x;
+    const dy = player.y - this.y;
+    const dist = Math.hypot(dx, dy);
+
+    // Distance check
+    if (dist > GUARD_VIEW_RANGE) return false;
+
+    // Angle check (is within FOV cone?)
+    const angleToPlayer = Math.atan2(dy, dx);
+    let diff = angleToPlayer - this.angle;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+
+    if (Math.abs(diff) > GUARD_VIEW_ANGLE / 2) return false;
+
+    // Line of sight raycast against solid tiles
+    const steps = Math.floor(dist / 10);
+    for (let s = 1; s < steps; s++) {
+      const t = s / steps;
+      const checkX = this.x + dx * t;
+      const checkY = this.y + dy * t;
+      const col = Math.floor(checkX / TILE_SIZE);
+      const row = Math.floor(checkY / TILE_SIZE);
+      if (isSolid(grid, col, row)) return false;
+    }
+
+    return true;
+  }
+
+  _checkPlayerNoise(player, grid) {
+    if (!player.isMoving || player.isSneaking) return false;
+    const dist = Math.hypot(player.x - this.x, player.y - this.y);
+    return dist < 120; // Running footstep auditory threshold
+  }
+
+  _patrol(grid, dt) {
+    if (!this.patrol || this.patrol.length === 0) return;
 
     if (this.waitTime > 0) {
-      this.waitTime--;
+      this.waitTime -= dt;
       return;
     }
 
@@ -133,159 +219,70 @@ export class Guard {
     const dy = target.y - this.y;
     const dist = Math.hypot(dx, dy);
 
-    if (dist < 4) {
+    if (dist < 8) {
       this.currentWaypoint = (this.currentWaypoint + 1) % this.patrol.length;
-      this.waitTime = 30; // Pause at waypoint
+      this.waitTime = 60; // Pause for 1 second at each waypoint
     } else {
       this.targetAngle = Math.atan2(dy, dx);
-      this._turnTowardsTarget(0.08);
-      const moveX = Math.cos(this.angle) * this.speed;
-      const moveY = Math.sin(this.angle) * this.speed;
-      this.x += moveX;
-      this.y += moveY;
+      this.x += (dx / dist) * this.speed * dt;
+      this.y += (dy / dist) * this.speed * dt;
     }
   }
 
   _chase(player, grid) {
     const dx = player.x - this.x;
     const dy = player.y - this.y;
-    this.targetAngle = Math.atan2(dy, dx);
-    this._turnTowardsTarget(0.15);
-
-    const speed = this.speed * 1.5;
-    const moveX = Math.cos(this.angle) * speed;
-    const moveY = Math.sin(this.angle) * speed;
-    if (!this._collides(this.x + moveX, this.y + moveY, grid)) {
-      this.x += moveX;
-      this.y += moveY;
+    const dist = Math.hypot(dx, dy);
+    if (dist > 4) {
+      this.targetAngle = Math.atan2(dy, dx);
+      this.x += (dx / dist) * (this.speed * 1.45);
+      this.y += (dy / dist) * (this.speed * 1.45);
     }
   }
 
-  _search(grid) {
-    if (this.investigatePos) {
-      const dx = this.investigatePos.x - this.x;
-      const dy = this.investigatePos.y - this.y;
-      const dist = Math.hypot(dx, dy);
-      if (dist > 8) {
-        this.targetAngle = Math.atan2(dy, dx);
-        this._turnTowardsTarget(0.1);
-        this.x += Math.cos(this.angle) * this.speed;
-        this.y += Math.sin(this.angle) * this.speed;
-        return;
-      }
+  _investigate(grid) {
+    if (!this.investigatePos) {
+      this.state = GUARD_STATE.PATROL;
+      return;
     }
+    const dx = this.investigatePos.x - this.x;
+    const dy = this.investigatePos.y - this.y;
+    const dist = Math.hypot(dx, dy);
 
-    // Look around at last known position
-    this.searchTimer--;
-    this.targetAngle += 0.04;
-    this._turnTowardsTarget(0.08);
-
-    if (this.searchTimer <= 0) {
-      this.state = GUARD_STATE.RETURN;
+    if (dist < 16) {
+      this.investigatePos = null;
+      this.state = GUARD_STATE.SEARCH;
+      this.searchTimer = 140;
+    } else {
+      this.targetAngle = Math.atan2(dy, dx);
+      this.x += (dx / dist) * (this.speed * 1.1);
+      this.y += (dy / dist) * (this.speed * 1.1);
     }
+  }
+
+  _searchLookAround() {
+    this.targetAngle += 0.04; // Slowly scan in circle
   }
 
   _returnToPatrol(grid) {
-    const target = this.patrol[this.currentWaypoint];
+    const target = this.patrol[this.currentWaypoint] || { x: this.x, y: this.y };
     const dx = target.x - this.x;
     const dy = target.y - this.y;
     const dist = Math.hypot(dx, dy);
 
-    if (dist < 6) {
+    if (dist < 12) {
       this.state = GUARD_STATE.PATROL;
     } else {
       this.targetAngle = Math.atan2(dy, dx);
-      this._turnTowardsTarget(0.08);
-      this.x += Math.cos(this.angle) * this.speed;
-      this.y += Math.sin(this.angle) * this.speed;
+      this.x += (dx / dist) * this.speed;
+      this.y += (dy / dist) * this.speed;
     }
   }
 
-  _turnTowardsTarget(turnSpeed = 0.1) {
+  _turnTowardsTarget(turnSpeed) {
     let diff = this.targetAngle - this.angle;
-    while (diff < -Math.PI) diff += Math.PI * 2;
     while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
     this.angle += diff * turnSpeed;
-  }
-
-  _computeVisionPolygon(grid) {
-    const rayCount = 48;
-    const halfAngle = GUARD_VIEW_ANGLE / 2;
-    const startAngle = this.angle - halfAngle;
-    const step = GUARD_VIEW_ANGLE / (rayCount - 1);
-
-    this.visionPolygon = [{ x: this.x, y: this.y }];
-
-    for (let i = 0; i < rayCount; i++) {
-      const rayAngle = startAngle + i * step;
-      const hit = this._castRay(this.x, this.y, rayAngle, GUARD_VIEW_RANGE, grid);
-      this.visionPolygon.push(hit);
-    }
-  }
-
-  _castRay(ox, oy, angle, maxDist, grid) {
-    const cos = Math.cos(angle);
-    const sin = Math.sin(angle);
-    let dist = 0;
-    const step = 6;
-
-    while (dist < maxDist) {
-      dist += step;
-      const px = ox + cos * dist;
-      const py = oy + sin * dist;
-      const c = Math.floor(px / TILE_SIZE);
-      const r = Math.floor(py / TILE_SIZE);
-
-      if (isSolid(grid, c, r)) {
-        return { x: px, y: py };
-      }
-    }
-    return { x: ox + cos * maxDist, y: oy + sin * maxDist };
-  }
-
-  _checkPlayerInVision(player, grid) {
-    const dx = player.x - this.x;
-    const dy = player.y - this.y;
-    const dist = Math.hypot(dx, dy);
-
-    if (dist > GUARD_VIEW_RANGE) return false;
-
-    // Check angle relative to facing direction
-    let angleToPlayer = Math.atan2(dy, dx) - this.angle;
-    while (angleToPlayer < -Math.PI) angleToPlayer += Math.PI * 2;
-    while (angleToPlayer > Math.PI) angleToPlayer -= Math.PI * 2;
-
-    if (Math.abs(angleToPlayer) > GUARD_VIEW_ANGLE / 2) {
-      // Can't see unless very close behind (proximity detection)
-      if (dist > GUARD_RADIUS + player.radius + 6) return false;
-    }
-
-    // Check line-of-sight obstruction
-    return !this._isLineBlocked(this.x, this.y, player.x, player.y, grid);
-  }
-
-  _checkPlayerNoise(player, grid) {
-    if (!player.isMoving || player.isSneaking) return false;
-    const dist = Math.hypot(player.x - this.x, player.y - this.y);
-    return dist < 85;
-  }
-
-  _isLineBlocked(x1, y1, x2, y2, grid) {
-    const steps = Math.ceil(Math.hypot(x2 - x1, y2 - y1) / 10);
-    for (let i = 1; i < steps; i++) {
-      const t = i / steps;
-      const cx = x1 + (x2 - x1) * t;
-      const cy = y1 + (y2 - y1) * t;
-      const c = Math.floor(cx / TILE_SIZE);
-      const r = Math.floor(cy / TILE_SIZE);
-      if (isSolid(grid, c, r)) return true;
-    }
-    return false;
-  }
-
-  _collides(px, py, grid) {
-    const c = Math.floor(px / TILE_SIZE);
-    const r = Math.floor(py / TILE_SIZE);
-    return isSolid(grid, c, r);
   }
 }

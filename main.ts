@@ -1,6 +1,7 @@
-// Umbra: The Shadow Heist — make.fun stealth game entry
-// Tactical top-down stealth infiltration with dynamic raycasted vision cones,
-// dynamic 2D shadow casting & lighting, silent sneaking and low-cover concealment.
+// Umbra: Midnight Observatory — make.fun stealth game entry
+// Art-Deco tactical stealth heist engine featuring 5 heists, raycasted vision cones,
+// dynamic 2D lighting & shadow casting, sweeping surveillance cameras, high-voltage laser tripwires,
+// smoke vials ([Q]), acoustic pebble decoys ([E]), and tactical patrol route foresight.
 
 import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -33,4 +34,3 @@ writeFileSync(
     game_path_max_bytes: 1000,
   }),
 );
-

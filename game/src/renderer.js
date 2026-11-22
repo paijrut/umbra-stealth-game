@@ -1,4 +1,4 @@
-// renderer.js — World rendering, vision cones, particles, HUD
+// renderer.js — World rendering, vision cones, security cameras, lasers, smoke, HUD
 import {
   CANVAS_WIDTH, CANVAS_HEIGHT, TILE_SIZE, COLS, ROWS,
   COLORS, TILE
@@ -25,20 +25,30 @@ export class GameRenderer {
     // 2. Render floor and tiles
     this._renderMap(world.level.grid, world.exitUnlocked);
 
-    // 3. Render footprints
+    // 3. Render tactical patrol routes
+    this._renderPatrolRoutes(world.guards);
+
+    // 4. Render footprints
     this._renderFootprints(world.player.footprints);
 
-    // 4. Render guard vision cones
+    // 5. Render security cameras and vision cones
+    this._renderSecurity(world.security);
     this._renderVisionCones(world.guards);
 
-    // 5. Render characters (player and guards)
+    // 6. Render gadgets (smoke clouds, pebbles, acoustic ripples)
+    this._renderGadgets(world.gadgets);
+
+    // 7. Render characters (guards and player)
     this._renderGuards(world.guards);
     this._renderPlayer(world.player);
 
-    // 6. Dynamic lighting and shadows
+    // 8. Dynamic lighting and shadows
     world.lighting.render(ctx, world.level.lights, world.guards, world.player);
 
-    // 7. Heads-Up Display (HUD)
+    // 9. Render laser tripwires on top of lighting for brilliant glow
+    this._renderLasers(world.security);
+
+    // 10. Heads-Up Display (HUD)
     this._renderHUD(world);
   }
 
@@ -104,12 +114,12 @@ export class GameRenderer {
           const ky = y + 16 + bounce;
 
           // Aura glow
-          const aura = ctx.createRadialGradient(kx, ky, 2, kx, ky, 18);
-          aura.addColorStop(0, 'rgba(255, 220, 68, 0.4)');
+          const aura = ctx.createRadialGradient(kx, ky, 2, kx, ky, 20);
+          aura.addColorStop(0, 'rgba(255, 220, 68, 0.45)');
           aura.addColorStop(1, 'rgba(255, 220, 68, 0)');
           ctx.fillStyle = aura;
           ctx.beginPath();
-          ctx.arc(kx, ky, 18, 0, Math.PI * 2);
+          ctx.arc(kx, ky, 20, 0, Math.PI * 2);
           ctx.fill();
 
           // Key briefcase icon
@@ -120,7 +130,7 @@ export class GameRenderer {
           ctx.strokeRect(kx - 3, ky - 7, 6, 3);
         } else if (tile === TILE.EXIT) {
           // Extraction zone
-          const glow = (Math.sin(this.pulse * 3) + 1) * 0.15 + 0.15;
+          const glow = (Math.sin(this.pulse * 3) + 1) * 0.18 + 0.15;
           ctx.fillStyle = `rgba(68, 255, 136, ${glow})`;
           ctx.fillRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
 
@@ -137,6 +147,36 @@ export class GameRenderer {
         }
       }
     }
+  }
+
+  _renderPatrolRoutes(guards) {
+    const ctx = this.ctx;
+    ctx.save();
+    for (const guard of guards) {
+      if (!guard.patrol || guard.patrol.length < 2) continue;
+
+      ctx.strokeStyle = 'rgba(255, 130, 80, 0.22)';
+      ctx.setLineDash([4, 6]);
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      for (let i = 0; i < guard.patrol.length; i++) {
+        const wp = guard.patrol[i];
+        if (i === 0) ctx.moveTo(wp.x, wp.y);
+        else ctx.lineTo(wp.x, wp.y);
+      }
+      ctx.closePath();
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Waypoint nodes
+      for (const wp of guard.patrol) {
+        ctx.fillStyle = 'rgba(255, 140, 80, 0.35)';
+        ctx.beginPath();
+        ctx.arc(wp.x, wp.y, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
   }
 
   _renderFootprints(footprints) {
@@ -164,6 +204,154 @@ export class GameRenderer {
     }
   }
 
+  _renderSecurity(security) {
+    if (!security || !security.cameras) return;
+    const ctx = this.ctx;
+
+    for (const cam of security.cameras) {
+      if (cam.visionPolygon.length < 3) continue;
+
+      ctx.save();
+      // Sweeping vision cone
+      const coneGrad = ctx.createRadialGradient(cam.x, cam.y, 8, cam.x, cam.y, cam.range);
+      if (cam.detection > 0) {
+        coneGrad.addColorStop(0, 'rgba(255, 50, 50, 0.35)');
+        coneGrad.addColorStop(1, 'rgba(255, 50, 50, 0.03)');
+      } else {
+        coneGrad.addColorStop(0, 'rgba(0, 220, 255, 0.22)');
+        coneGrad.addColorStop(1, 'rgba(0, 220, 255, 0.02)');
+      }
+
+      ctx.fillStyle = coneGrad;
+      ctx.beginPath();
+      cam.visionPolygon.forEach((pt, idx) => {
+        if (idx === 0) ctx.moveTo(pt.x, pt.y);
+        else ctx.lineTo(pt.x, pt.y);
+      });
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.strokeStyle = cam.detection > 0 ? 'rgba(255, 50, 50, 0.45)' : 'rgba(0, 220, 255, 0.35)';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+
+      // Camera base fixture
+      ctx.fillStyle = '#1c1c28';
+      ctx.beginPath();
+      ctx.arc(cam.x, cam.y, 8, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = cam.detection > 0 ? '#ff3344' : '#00ddff';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Lens emitter pointing along currentAngle
+      ctx.strokeStyle = cam.detection > 0 ? '#ff6666' : '#ffffff';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(cam.x, cam.y);
+      ctx.lineTo(cam.x + Math.cos(cam.currentAngle) * 11, cam.y + Math.sin(cam.currentAngle) * 11);
+      ctx.stroke();
+
+      ctx.restore();
+    }
+  }
+
+  _renderLasers(security) {
+    if (!security || !security.lasers) return;
+    const ctx = this.ctx;
+
+    for (const laser of security.lasers) {
+      if (!laser.isActive) continue;
+
+      ctx.save();
+      // Outer neon red halo
+      ctx.strokeStyle = 'rgba(255, 30, 50, 0.45)';
+      ctx.lineWidth = 6 + Math.sin(this.pulse * 5) * 1.5;
+      ctx.beginPath();
+      ctx.moveTo(laser.x1, laser.y1);
+      ctx.lineTo(laser.x2, laser.y2);
+      ctx.stroke();
+
+      // Bright core laser beam
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(laser.x1, laser.y1);
+      ctx.lineTo(laser.x2, laser.y2);
+      ctx.stroke();
+
+      // Terminal emitter nodes
+      [{ x: laser.x1, y: laser.y1 }, { x: laser.x2, y: laser.y2 }].forEach(node => {
+        ctx.fillStyle = '#ff2244';
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, 4.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, 2, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      ctx.restore();
+    }
+  }
+
+  _renderGadgets(gadgets) {
+    if (!gadgets) return;
+    const ctx = this.ctx;
+
+    // 1. Acoustic noise expansion ripples
+    for (const r of gadgets.noiseRipples) {
+      ctx.save();
+      ctx.strokeStyle = `rgba(255, 220, 100, ${r.alpha})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(r.x, r.y, r.radius, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.strokeStyle = `rgba(255, 200, 80, ${r.alpha * 0.4})`;
+      ctx.beginPath();
+      ctx.arc(r.x, r.y, Math.max(0, r.radius - 12), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // 2. Flying pebble projectile
+    for (const p of gadgets.pebbles) {
+      ctx.save();
+      ctx.fillStyle = '#ffddaa';
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Shadow on floor
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+      const floorY = p.startY + (p.targetY - p.startY) * p.progress;
+      ctx.beginPath();
+      ctx.arc(p.x, floorY, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // 3. Volumetric billowing smoke plumes
+    for (const cloud of gadgets.smokeClouds) {
+      ctx.save();
+      for (const pt of cloud.particles) {
+        const grad = ctx.createRadialGradient(pt.x, pt.y, 2, pt.x, pt.y, pt.radius);
+        grad.addColorStop(0, `rgba(220, 230, 245, ${pt.alpha * 0.38})`);
+        grad.addColorStop(0.6, `rgba(160, 175, 195, ${pt.alpha * 0.22})`);
+        grad.addColorStop(1, 'rgba(100, 110, 130, 0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, pt.radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+  }
+
   _renderVisionCones(guards) {
     const ctx = this.ctx;
 
@@ -181,15 +369,15 @@ export class GameRenderer {
       // Color varies by alertness
       let coneGrad;
       if (guard.state === GUARD_STATE.ALERT) {
-        coneGrad = ctx.createRadialGradient(guard.x, guard.y, 10, guard.x, guard.y, 180);
+        coneGrad = ctx.createRadialGradient(guard.x, guard.y, 10, guard.x, guard.y, 185);
         coneGrad.addColorStop(0, 'rgba(255, 40, 40, 0.35)');
         coneGrad.addColorStop(1, 'rgba(255, 40, 40, 0.05)');
       } else if (guard.state === GUARD_STATE.SUSPICIOUS) {
-        coneGrad = ctx.createRadialGradient(guard.x, guard.y, 10, guard.x, guard.y, 180);
+        coneGrad = ctx.createRadialGradient(guard.x, guard.y, 10, guard.x, guard.y, 185);
         coneGrad.addColorStop(0, 'rgba(255, 180, 40, 0.25)');
         coneGrad.addColorStop(1, 'rgba(255, 180, 40, 0.04)');
       } else {
-        coneGrad = ctx.createRadialGradient(guard.x, guard.y, 10, guard.x, guard.y, 180);
+        coneGrad = ctx.createRadialGradient(guard.x, guard.y, 10, guard.x, guard.y, 185);
         coneGrad.addColorStop(0, 'rgba(255, 200, 100, 0.16)');
         coneGrad.addColorStop(1, 'rgba(255, 200, 100, 0.02)');
       }
@@ -199,10 +387,10 @@ export class GameRenderer {
 
       // Cone perimeter line
       ctx.strokeStyle = guard.state === GUARD_STATE.ALERT
-        ? 'rgba(255, 60, 60, 0.4)'
+        ? 'rgba(255, 60, 60, 0.45)'
         : guard.state === GUARD_STATE.SUSPICIOUS
-          ? 'rgba(255, 180, 40, 0.3)'
-          : 'rgba(255, 200, 100, 0.15)';
+          ? 'rgba(255, 180, 40, 0.35)'
+          : 'rgba(255, 200, 100, 0.16)';
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
@@ -235,7 +423,7 @@ export class GameRenderer {
       ctx.arc(0, 0, guard.radius, 0, Math.PI * 2);
       ctx.fill();
 
-      // Shoulders & flashlight barrel
+      // Flashlight fixture
       ctx.fillStyle = '#222';
       ctx.fillRect(guard.radius - 2, -3, 8, 6);
 
@@ -285,7 +473,7 @@ export class GameRenderer {
     ctx.ellipse(0, 4, player.radius, player.radius * 0.6, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Player body (stylish operative)
+    // Player body (operative)
     ctx.rotate(player.angle);
     ctx.fillStyle = player.inCover ? '#226688' : COLORS.player;
     ctx.beginPath();
@@ -312,9 +500,9 @@ export class GameRenderer {
     const player = world.player;
 
     // Top status banner (dark glassmorphism)
-    ctx.fillStyle = 'rgba(10, 14, 24, 0.85)';
+    ctx.fillStyle = 'rgba(10, 14, 24, 0.88)';
     ctx.fillRect(0, 0, CANVAS_WIDTH, 44);
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
     ctx.beginPath();
     ctx.moveTo(0, 44);
     ctx.lineTo(CANVAS_WIDTH, 44);
@@ -322,9 +510,9 @@ export class GameRenderer {
 
     // Level Title
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 14px sans-serif';
+    ctx.font = 'bold 13px sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText(`SECTOR ${world.currentLevelIndex + 1}: ${world.level.name.toUpperCase()}`, 20, 22);
+    ctx.fillText(`HEIST 0${world.currentLevelIndex + 1}: ${world.level.name.toUpperCase()}`, 20, 22);
 
     ctx.fillStyle = '#8899aa';
     ctx.font = '11px sans-serif';
@@ -366,26 +554,43 @@ export class GameRenderer {
     ctx.fillStyle = maxDet > 0.8 ? '#ff4444' : '#ccddee';
     ctx.font = 'bold 10px monospace';
     ctx.textAlign = 'right';
-    ctx.fillText(maxDet > 0.8 ? 'ALARM!' : maxDet > 0.4 ? 'SUSPICIOUS' : 'STEALTH', mx - 8, 26);
+    const pct = Math.round(maxDet * 100);
+    ctx.fillText(maxDet > 0.8 ? `ALARM! ${pct}%` : maxDet > 0.4 ? `ALERT ${pct}%` : `STEALTH ${pct}%`, mx - 8, 26);
 
-    // Bottom Controls Bar
-    ctx.fillStyle = 'rgba(10, 14, 24, 0.75)';
-    ctx.fillRect(0, CANVAS_HEIGHT - 26, CANVAS_WIDTH, 26);
+    // Bottom Controls & Gadgets Bar
+    ctx.fillStyle = 'rgba(10, 14, 24, 0.88)';
+    ctx.fillRect(0, CANVAS_HEIGHT - 28, CANVAS_WIDTH, 28);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.beginPath();
+    ctx.moveTo(0, CANVAS_HEIGHT - 28);
+    ctx.lineTo(CANVAS_WIDTH, CANVAS_HEIGHT - 28);
+    ctx.stroke();
+
+    // Gadget Slots (Left)
+    const smokeCount = world.gadgets?.smokeCount ?? 2;
+    const pebbleCount = world.gadgets?.pebbleCount ?? 3;
+
+    ctx.fillStyle = smokeCount > 0 ? '#44ccff' : '#667788';
+    ctx.font = 'bold 11px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(`[Q] SMOKE VIAL: ${smokeCount}/2`, 20, CANVAS_HEIGHT - 10);
+
+    ctx.fillStyle = pebbleCount > 0 ? '#ffdd44' : '#667788';
+    ctx.fillText(`[E] DECOY PEBBLE: ${pebbleCount}/3`, 170, CANVAS_HEIGHT - 10);
 
     ctx.fillStyle = '#778899';
     ctx.font = '11px sans-serif';
-    ctx.textAlign = 'left';
-    ctx.fillText('WASD / Arrows: Infiltrate  |  SHIFT: Silent Sneak  |  Crater/Boxes: Cover  |  R: Quick Restart', 20, CANVAS_HEIGHT - 9);
+    ctx.fillText('WASD: Move  |  SHIFT: Sneak  |  R: Restart', 350, CANVAS_HEIGHT - 10);
 
-    // Stealth Stance Indicator
+    // Stealth Stance Indicator (Right)
     const stanceText = player.inCover
       ? 'STANCE: CONCEALED IN COVER'
       : player.isSneaking
         ? 'STANCE: SNEAKING (SILENT)'
-        : 'STANCE: NORMAL (FOOTSTEPS HEARD)';
+        : 'STANCE: NORMAL (AUDIBLE)';
     ctx.fillStyle = player.inCover ? '#44ff88' : player.isSneaking ? '#44ccff' : '#ffaa44';
     ctx.font = 'bold 11px monospace';
     ctx.textAlign = 'right';
-    ctx.fillText(stanceText, CANVAS_WIDTH - 20, CANVAS_HEIGHT - 9);
+    ctx.fillText(stanceText, CANVAS_WIDTH - 20, CANVAS_HEIGHT - 10);
   }
 }

@@ -63,7 +63,7 @@ export class Player {
 
     // Decay footprints
     for (let i = this.footprints.length - 1; i >= 0; i--) {
-      this.footprints[i].alpha -= 0.005;
+      this.footprints[i].alpha -= 0.006;
       if (this.footprints[i].alpha <= 0) {
         this.footprints.splice(i, 1);
       }
@@ -99,19 +99,16 @@ export class Player {
     const minRow = Math.floor((py - r) / TILE_SIZE);
     const maxRow = Math.floor((py + r) / TILE_SIZE);
 
-    for (let col = minCol; col <= maxCol; col++) {
-      for (let row = minRow; row <= maxRow; row++) {
-        if (isSolid(grid, col, row)) {
-          // Circle-rectangle collision test
-          const rx = col * TILE_SIZE;
-          const ry = row * TILE_SIZE;
-          const closestX = Math.max(rx, Math.min(px, rx + TILE_SIZE));
-          const closestY = Math.max(ry, Math.min(py, ry + TILE_SIZE));
-          const distX = px - closestX;
-          const distY = py - closestY;
-          if (distX * distX + distY * distY < r * r) {
-            return true;
-          }
+    for (let rIdx = minRow; rIdx <= maxRow; rIdx++) {
+      for (let cIdx = minCol; cIdx <= maxCol; cIdx++) {
+        if (isSolid(grid, cIdx, rIdx)) {
+          // Circle vs AABB tile collision
+          const tileLeft = cIdx * TILE_SIZE;
+          const tileTop = rIdx * TILE_SIZE;
+          const nearestX = Math.max(tileLeft, Math.min(px, tileLeft + TILE_SIZE));
+          const nearestY = Math.max(tileTop, Math.min(py, tileTop + TILE_SIZE));
+          const dist = Math.hypot(px - nearestX, py - nearestY);
+          if (dist < r) return true;
         }
       }
     }
@@ -119,33 +116,40 @@ export class Player {
   }
 
   _calculateLightExposure(lights, grid) {
-    let maxLight = 0.15; // Ambient base darkness
+    if (!lights || lights.length === 0) {
+      this.lightLevel = 0.2;
+      return;
+    }
+
+    let maxExposure = 0.15; // Ambient shadows
     for (const light of lights) {
-      const dx = this.x - light.x;
-      const dy = this.y - light.y;
-      const dist = Math.hypot(dx, dy);
+      const dist = Math.hypot(light.x - this.x, light.y - this.y);
       if (dist < light.radius) {
-        // Simple raycast to check if wall blocks the light
-        if (!this._isLineBlocked(light.x, light.y, this.x, this.y, grid)) {
-          const falloff = 1 - dist / light.radius;
-          const intensity = falloff * 0.85;
-          if (intensity > maxLight) maxLight = intensity;
+        // Line of sight check to light source
+        if (this._hasLineOfSight(light.x, light.y, this.x, this.y, grid)) {
+          const intensity = 1 - (dist / light.radius);
+          if (intensity > maxExposure) {
+            maxExposure = intensity;
+          }
         }
       }
     }
-    this.lightLevel = maxLight;
+    this.lightLevel = maxExposure;
   }
 
-  _isLineBlocked(x1, y1, x2, y2, grid) {
-    const steps = Math.ceil(Math.hypot(x2 - x1, y2 - y1) / 10);
+  _hasLineOfSight(x1, y1, x2, y2, grid) {
+    const dist = Math.hypot(x2 - x1, y2 - y1);
+    const steps = Math.floor(dist / 12);
+    const dx = (x2 - x1) / steps;
+    const dy = (y2 - y1) / steps;
+
     for (let i = 1; i < steps; i++) {
-      const t = i / steps;
-      const cx = x1 + (x2 - x1) * t;
-      const cy = y1 + (y2 - y1) * t;
-      const c = Math.floor(cx / TILE_SIZE);
-      const r = Math.floor(cy / TILE_SIZE);
-      if (isSolid(grid, c, r)) return true;
+      const cx = x1 + dx * i;
+      const cy = y1 + dy * i;
+      const col = Math.floor(cx / TILE_SIZE);
+      const row = Math.floor(cy / TILE_SIZE);
+      if (isSolid(grid, col, row)) return false;
     }
-    return false;
+    return true;
   }
 }
