@@ -1,0 +1,6 @@
+[
+  { "name": "1-infiltration.png", "query": "?shot=1" },
+  { "name": "2-shadow-stealth.png", "query": "?shot=2" },
+  { "name": "3-alarm-evasion.png", "query": "?shot=3" },
+  { "name": "4-extraction.png", "query": "?shot=4" }
+]
