@@ -1,6 +1,10 @@
 # UMBRA: Midnight Observatory
 
-An Art-Deco tactical top-down stealth heist engine built with pure HTML5 Canvas and the Web Audio API. Zero dependencies, 100% offline.
+[![make.fun · best-stealth-game-20261121-1759](https://make.fun/badge/best-stealth-game-20261121-1759.svg)](https://make.fun/bounty/best-stealth-game-20261121-1759?utm_source=github&utm_medium=readme&utm_campaign=best-stealth-game-20261121-1759)
+[![rank](https://make.fun/badge/best-stealth-game-20261121-1759/paijrut/umbra-stealth-game/rank.svg)](https://make.fun/bounty/best-stealth-game-20261121-1759/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=best-stealth-game-20261121-1759)
+[![reward](https://make.fun/badge/best-stealth-game-20261121-1759/paijrut/umbra-stealth-game/reward.svg)](https://make.fun/bounty/best-stealth-game-20261121-1759?utm_source=github&utm_medium=readme&utm_campaign=best-stealth-game-20261121-1759)
+
+An Art-Deco tactical top-down stealth heist engine built with pure HTML5 Canvas and the Web Audio API for the make.fun bounty [Make the best stealth game](https://make.fun/bounty/best-stealth-game-20261121-1759). Zero dependencies, 100% offline.
 
 ## Core Features
 
