@@ -1,4 +1,5 @@
 // main.js — Main game loop, state management, screenshot staging
+// Umbra: The Shadow Heist — Enhanced tactical stealth engine
 import { CANVAS_WIDTH, CANVAS_HEIGHT, GAME_STATE, COLORS } from './constants.js';
 import { InputManager } from './input.js';
 import { GameWorld } from './world.js';

@@ -1,6 +1,6 @@
 // Umbra: The Shadow Heist — make.fun stealth game entry
 // Tactical top-down stealth infiltration with dynamic raycasted vision cones,
-// light exposure mechanics, and low-cover concealment.
+// dynamic 2D shadow casting & lighting, silent sneaking and low-cover concealment.
 
 import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -13,7 +13,7 @@ const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 // Prepare output staging directory
 mkdirSync(out, { recursive: true });
 
-// Copy playable game files
+// Copy playable game static assets
 cpSync(join(here, 'game'), join(out, 'game'), { recursive: true });
 
 // Copy verified in-game screenshots
@@ -33,3 +33,4 @@ writeFileSync(
     game_path_max_bytes: 1000,
   }),
 );
+
